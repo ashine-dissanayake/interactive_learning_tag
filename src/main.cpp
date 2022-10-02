@@ -10,129 +10,127 @@
 // * Date: 2021/7/21
 // *******************************************************************************
 // */
-// #include <Arduino.h>
-// // #include <Queue.h>
-// #include <M5Core2.h>
-// #include <freertos/FreeRTOS.h>
-// #include <freertos/task.h>
-
-// typedef struct Message {
-//   int count;
-// } Message;
-
-// static QueueHandle_t msg_queue;
-// static const int msg_queue_len = 10;     // Size of msg_queue
-
-// void task1(void* parameters) {
-//   Message rcv_msg;
-//   M5.begin(); 
-//   M5.Lcd.fillScreen(LIGHTGREY);
-//   M5.Lcd.setTextColor(
-//       RED);  //Set the font color to white.  设置字体颜色为白色
-//   M5.Lcd.setTextSize(2);  //Set the font size.  设置字体大小
-//   M5.Lcd.printf("Display Test!");  //Serial output format string.  输出格式化字符串
-
-//   for(;;) {
-//     if (xQueueReceive(msg_queue, (void *)&rcv_msg, 0) == pdTRUE) {
-//       M5.Lcd.clearDisplay(LIGHTGREY);
-//       M5.Lcd.setCursor(
-//           10, 10);  //Move the cursor position to (x,y).  移动光标位置到 (x,y)处      
-//       M5.Lcd.printf("Display Test!: %i", rcv_msg.count);  //Serial output format string.  输出格式化字符串
-//     }    
-//     vTaskDelay(1000 / portTICK_PERIOD_MS); 
-//   }
-// }
-
-
-// void task2(void* parameters) {
-//   Message msg;
-//   int counter = 0;
-
-//   for(;;) {
-//     // Serial.print("Task 2 Counter"); 
-//     // Serial.println(counter2++);
-//     msg.count = counter; 
-//     xQueueSend(msg_queue, (void *) &msg, 10);    
-//     counter++;
-     
-//     vTaskDelay(1000 / portTICK_PERIOD_MS); 
-//   }
-// }
-
-// void setup() {
-//   // Serial.begin(115200);
-//   msg_queue = xQueueCreate(msg_queue_len, sizeof(Message));
-
-//   xTaskCreate(
-//     task1, 
-//     "Task 1", 
-//     3000, 
-//     NULL, 
-//     1, 
-//     NULL
-//   ); 
-
-//   xTaskCreate(
-//     task2, 
-//     "Task 2", 
-//     1000, 
-//     NULL, 
-//     2, 
-//     NULL
-//   );   
-
-// }
-
-
-// void loop() { 
-//   // ignore
-// }
-
-
-/*
-   Based on Neil Kolban example for IDF: https://github.com/nkolban/esp32-snippets/blob/master/cpp_utils/tests/BLE%20Tests/SampleScan.cpp
-   Ported to Arduino ESP32 by Evandro Copercini
-*/
-
 #include <Arduino.h>
+// #include <Queue.h>
 #include <M5Core2.h>
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEScan.h>
-#include <BLEAdvertisedDevice.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include "../lib/ble/ble.h"
+#include "../lib/lcd/lcd.h"
+#include "../lib/touch/touch.h"
+#include "../user/user.h"
 
-int scanTime = 5; //In seconds
-BLEScan* pBLEScan;
-
-class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-    void onResult(BLEAdvertisedDevice advertisedDevice) {
-      if (strcmp("IDTILL", advertisedDevice.getName().c_str()) == 0) {
-        Serial.printf("Name: %s :: UUID: %s --> %d\n\r", advertisedDevice.getName().c_str(), advertisedDevice.getAddress().toString().c_str(), advertisedDevice.getRSSI());
-      }
-      
-      // Serial.printf("\n\r");
-      // Serial.printf("Advertised Device: %s \n", advertisedDevice.toString().c_str());
-    }
-};
-
-void setup() {
+void setup() 
+{
+  
   Serial.begin(115200);
   Serial.println("Scanning...");
 
-  BLEDevice::init("");
-  pBLEScan = BLEDevice::getScan(); //create new scan
-  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
-  pBLEScan->setActiveScan(true); //active scan uses more power, but get results faster
-  pBLEScan->setInterval(100);
-  pBLEScan->setWindow(99);  // less or equal setInterval value
+  M5.begin(true, true, true, true);
+  init_users(); 
+
+  xTaskCreate(
+    ble_task,   
+    "BLE Task", 
+    4000, 
+    NULL, 
+    1, 
+    NULL
+  ); 
+
+  xTaskCreate(
+    touch_task,   
+    "Touch Task", 
+    4000, 
+    NULL, 
+    1, 
+    NULL
+  ); 
+
+  xTaskCreate(
+    introduction_display,   
+    "LCD Task", 
+    4000, 
+    NULL, 
+    1, 
+    NULL
+  ); 
+  
 }
 
-void loop() {
-  // put your main code here, to run repeatedly:
-  BLEScanResults foundDevices = pBLEScan->start(scanTime, false);
-  Serial.print("Devices found: ");
-  Serial.println(foundDevices.getCount());
-  Serial.println("Scan done!");
-  pBLEScan->clearResults();   // delete results fromBLEScan buffer to release memory
-  delay(2000);
+void loop() { 
+  // ignore
 }
+
+
+
+/*
+*******************************************************************************
+* Copyright (c) 2021 by M5Stack
+*                  Equipped with M5Core2 sample source code
+*                          配套  M5Core2 示例源代码
+* Visit for more information: https://docs.m5stack.com/en/core/core2
+* 获取更多资料请访问: https://docs.m5stack.com/zh_CN/core/core2
+*
+* Describe: EEPROM Write.
+* Date: 2021/7/30
+*******************************************************************************
+  The values stored in the EEPROM will remain in the EEPROM even after the M5Core2 is disconnected.
+  When a new program is uploaded to the M5Core2, the values stored in the EEPROM can still be called or modified by the new program.
+  储存于EEPROM的数值即使在断开 M5Core2开发板电源后仍会保存在EEPROM中
+  当新程序上传到 M5Core2后，储存于EEPROM中的数值仍然可以被新的程序调用或者修改
+*/
+
+// #include <M5Core2.h>
+// #include <EEPROM.h>
+
+// int addr = 0;    //EEPROM Start number of an ADDRESS.  EEPROM地址起始编号
+// #define SIZE 32  //define the size of EEPROM(Byte).  定义EEPROM的大小(字节)
+
+// void setup() {
+//   M5.begin();             //Init M5Core2.  初始化 M5Core2
+//   M5.lcd.setTextSize(2);  //Set the text size to 2.  设置文字大小为2
+//   if (!EEPROM.begin(
+//           SIZE)) {  //Request storage of SIZE size(success return 1).  申请SIZE大小的存储(成功返回1)
+//     M5.Lcd.println(
+//         "\nFailed to initialise EEPROM!");  //串口输出格式化字符串.  Serial output format string
+//     delay(1000000);
+//   }
+//   M5.Lcd.println("\nRead data from EEPROM. Values are:");
+//   for (int i = 0; i < SIZE; i++) {
+//     M5.Lcd.printf(
+//         "%d ",
+//         EEPROM.read(
+//             i));  //Reads data from 0 to SIZE in EEPROM.  读取EEPROM中从0到SIZE中的数据
+//   }
+//   M5.Lcd.println("\n\nPress BtnA to Write EEPROM");
+// }
+
+// void loop() {
+//   M5.update();            //Check button down state.  检测按键按下状态
+//   M5.lcd.setTextSize(1);  //Set the text size to 1.  设置文字大小为1
+//   // if (M5.BtnA.isPressed()) {  //if the button.A is Pressed.  如果按键A按下
+//     M5.lcd.clear();
+//     M5.lcd.setCursor(0, 0);
+//     M5.Lcd.printf("\n%d Bytes datas written on EEPROM.\nValues are:\n", SIZE);
+//     Serial.print("HELLO");
+//     for (int i = 0; i < SIZE; i++) {
+//       int val = random(
+//           256);  //Integer values to be stored in the EEPROM (EEPROM can store one byte per memory address, and can only store numbers from 0 to 255. Therefore, if you want to use EEPROM to store the numeric value read by the analog input pin, divide the numeric value by 4.
+//       //将要存储于EEPROM的整数数值(EEPROM每一个存储地址可以储存一个字节，只能存储0-255的数.故如果要使用EEPROM存储模拟输入引脚所读取到的数值需要将该数值除以4)
+//       EEPROM.write(
+//           addr,
+//           val);  //Writes the specified data to the specified address.  向指定地址写入指定数据
+//       M5.Lcd.printf("%d ", val);
+//       addr += 1;  //Go to the next storage address.  转入下一存储地址
+//     }
+//     //When the storage address sequence number reaches the end of the storage space of the EEPROM, return to.  当存储地址序列号达到EEPROM的存储空间结尾，返回到EEPROM开始地址
+//     addr = 0;
+//     M5.Lcd.println("\n\nRead form EEPROM. Values are:");
+//     for (int i = 0; i < SIZE; i++) {
+//       M5.Lcd.printf("%d ", EEPROM.read(i));
+//     }
+//     M5.Lcd.println("\n-------------------------------------\n");
+//   // }
+//   delay(1500);
+// }
