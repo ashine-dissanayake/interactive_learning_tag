@@ -1,2 +1,6 @@
+#ifndef _LCD_H
+#define _LCD_H
 
-void introduction_display(void * parameter );
+extern void introduction_display(void * parameter );
+
+#endif
